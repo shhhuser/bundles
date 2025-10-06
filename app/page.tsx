@@ -8,7 +8,9 @@ import BuyBundleModal from "../components/BuyBundleModal";
 const fetcher = (url:string)=>fetch(url).then(r=>r.json());
 
 export default function Page() {
-  const { data, isLoading, mutate } = useSWR(`/api/gw?op=getBundles`, fetcher, { refreshInterval: 12000, dedupingInterval: 5000 });
+  const { data, isLoading } = useSWR(`/api/gw?op=getBundles`, fetcher, {
+    refreshInterval: 12000, dedupingInterval: 5000
+  });
   const [connecting, setConnecting] = useState(false);
   const [pubkey, setPubkey] = useState<string|undefined>(undefined);
   const [buying, setBuying] = useState<any|null>(null);
@@ -20,10 +22,11 @@ export default function Page() {
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
-      {/* Splash / header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-neon-lime via-neon-cyan to-neon-violet" />
+          <div className="w-10 h-10 overflow-hidden rounded-full border border-white/10">
+            <img src="/mascot.png" alt="Burrito mascot" className="w-full h-full object-cover" />
+          </div>
           <div>
             <div className="text-lg font-semibold">Burrito Bundles</div>
             <div className="text-xs text-white/60">Fresh tokens, auto-allocated, 1% BURRITO on every buy.</div>
@@ -34,7 +37,6 @@ export default function Page() {
         </button>
       </div>
 
-      {/* Loading bar on first visit */}
       {isLoading && (
         <div className="card p-4 mb-6">
           <div className="text-sm mb-2">Summoning bundles…</div>
@@ -44,14 +46,12 @@ export default function Page() {
         </div>
       )}
 
-      {/* Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
         {(data?.bundles || []).map((b:any)=>(
           <BundleCard key={b.id} bundle={b} onBuy={setBuying}/>
         ))}
       </div>
 
-      {/* Wallet & buy modals */}
       <WalletModal open={connecting} onClose={()=>setConnecting(false)} onConnect={(pk)=>{ setPubkey(pk); setConnecting(false); }}/>
       <BuyBundleModal open={!!buying} bundle={buying} onClose={()=>setBuying(null)} pubkey={pubkey}
         onAllocate={async ({ amountSol, bundle, alloc })=>{
