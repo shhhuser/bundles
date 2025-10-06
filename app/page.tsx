@@ -13,11 +13,13 @@ export default function Page() {
   });
   const [connecting, setConnecting] = useState(false);
   const [pubkey, setPubkey] = useState<string|undefined>(undefined);
+  const [provider, setProvider] = useState<"phantom"|"solflare"|undefined>(undefined);
   const [buying, setBuying] = useState<any|null>(null);
 
   useEffect(()=>{
     const w:any = window;
-    if (w.solana?.publicKey) setPubkey(w.solana.publicKey.toString());
+    if (w.solana?.publicKey) { setPubkey(w.solana.publicKey.toString()); setProvider("phantom"); }
+    else if (w.solflare?.publicKey) { setPubkey(w.solflare.publicKey.toString()); setProvider("solflare"); }
   },[]);
 
   return (
@@ -52,12 +54,14 @@ export default function Page() {
         ))}
       </div>
 
-      <WalletModal open={connecting} onClose={()=>setConnecting(false)} onConnect={(pk)=>{ setPubkey(pk); setConnecting(false); }}/>
-      <BuyBundleModal open={!!buying} bundle={buying} onClose={()=>setBuying(null)} pubkey={pubkey}
-        onAllocate={async ({ amountSol, bundle, alloc })=>{
-          const res = await fetch(`/api/gw?op=quote`, { method:"POST", body: JSON.stringify({ amountSol, alloc })}).then(r=>r.json());
-          alert(`Quoted ${res?.routes?.length||0} legs.\n(This demo stops at quote; swap building next step.)`);
-        }}
+      <WalletModal open={connecting} onClose={()=>setConnecting(false)} onConnect={(pk,ad)=>{
+        setPubkey(pk); setProvider(ad); setConnecting(false);
+      }}/>
+      <BuyBundleModal
+        open={!!buying}
+        bundle={buying}
+        onClose={()=>setBuying(null)}
+        pubkey={pubkey}
       />
     </main>
   );

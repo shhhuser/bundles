@@ -3,7 +3,6 @@ export const runtime = "edge";
 
 const JUP_BASE = process.env.JUP_BASE!;
 const BURRITO_MINT = process.env.BURRITO_MINT!;
-const HELIUS_RPC = process.env.HELIUS_RPC!;
 const MINT_SOL = "So11111111111111111111111111111111111111112";
 
 type TokenSignal = {
@@ -132,7 +131,7 @@ function composeBundles(universe:TokenSignal[]) {
   bundles.push(mk("Majors & Memes","majors", majors, Math.min(6, majors.length||3)));
   bundles.push(mk("Index Mix","index", [
     {address: MINT_SOL, symbol:"SOL", price:0, r1m:0,r5m:0,r1h:0,vol5m:0,vol1h:0,vol24h:0,liqUsd:0,trades24h:0,routeHealth:1, logo: "https://cryptologos.cc/logos/solana-sol-logo.png"},
-    {address: BURRITO_MINT, symbol:"BURRITO", price:0,r1m:0,r5m:0,r1h:0,vol5m:0,vol1h:0,vol24h:0,liqUsd:0,trades24h:0,routeHealth:1, logo: null},
+    {address: process.env.BURRITO_MINT!, symbol:"BURRITO", price:0,r1m:0,r5m:0,r1h:0,vol5m:0,vol1h:0,vol24h:0,liqUsd:0,trades24h:0,routeHealth:1, logo: null},
     ...rest.slice(0,4)
   ] as any[], 6));
   bundles.push(mk("Community Boosted","boosted", scored.filter(t=>t.boosted), 7));
@@ -163,11 +162,24 @@ function allocate(amountSol:number, tokens:TokenSignal[]) {
   return { burritoSol, perToken };
 }
 
-/** Jupiter quote helper */
+/** Jupiter helpers */
 async function jupQuote(inputMint:string, outputMint:string, amount:number, slippageBps=100) {
   const url = `${JUP_BASE}/quote?inputMint=${encodeURIComponent(inputMint)}&outputMint=${encodeURIComponent(outputMint)}&amount=${amount}&slippageBps=${slippageBps}`;
   const r = await fetch(url, { cf:{ cacheTtl: 5, cacheEverything: false }});
   if (!r.ok) return null;
+  return r.json();
+}
+
+async function jupSwapBuild(params:any) {
+  const r = await fetch(`${JUP_BASE}/swap`, {
+    method: "POST",
+    headers: { "content-type":"application/json" },
+    body: JSON.stringify(params)
+  });
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error(`Jup swap build failed: ${r.status} ${txt}`);
+  }
   return r.json();
 }
 
@@ -207,6 +219,41 @@ export async function POST(req:NextRequest) {
     const burritoLamports = Math.round((amountSol*0.01)*1e9);
     const burritoQuote = await jupQuote(MINT_SOL, BURRITO_MINT, burritoLamports);
     return json({ routes, burrito: burritoQuote });
+  }
+
+  if (op === "swap") {
+    const { owner, amountSol, alloc } = body as any;
+    if (!owner || !alloc) return json({ error: "Missing owner or alloc" });
+
+    // Build BURRITO 1% tx first
+    const burritoLamports = Math.round((amountSol*0.01)*1e9);
+    const txs:string[] = [];
+
+    const burritoTx = await jupSwapBuild({
+      quoteResponse: await jupQuote(MINT_SOL, BURRITO_MINT, burritoLamports),
+      userPublicKey: owner,
+      wrapAndUnwrapSol: true,
+      dynamicComputeUnitLimit: true,
+      prioritizationFeeLamports: "auto"
+    });
+    if (burritoTx?.swapTransaction) txs.push(burritoTx.swapTransaction);
+
+    // Then build each leg from alloc
+    const lamports = Math.round((amountSol*0.99) * 1e9);
+    for (const leg of alloc?.perToken ?? []) {
+      const amt = Math.max(10000, Math.round(lamports * leg.weight));
+      const q = await jupQuote(MINT_SOL, leg.mint, amt);
+      const built = await jupSwapBuild({
+        quoteResponse: q,
+        userPublicKey: owner,
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: "auto"
+      });
+      if (built?.swapTransaction) txs.push(built.swapTransaction);
+    }
+
+    return json({ txs });
   }
 
   return json({ error: "Unsupported op" });
